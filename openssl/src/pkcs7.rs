@@ -1,10 +1,10 @@
 use bio::{MemBio, MemBioSlice};
 use error::ErrorStack;
 use ffi;
-use foreign_types::ForeignTypeRef;
+use foreign_types::{ForeignType, ForeignTypeRef};
 use libc::c_int;
 use pkey::{HasPrivate, PKeyRef};
-use stack::StackRef;
+use stack::{StackRef, Stackable};
 use std::ptr;
 use symm::Cipher;
 use x509::store::X509StoreRef;
@@ -22,6 +22,15 @@ foreign_type_and_impl_send_sync! {
 
     /// Reference to `Pkcs7`
     pub struct Pkcs7Ref;
+}
+
+foreign_type_and_impl_send_sync! {
+    type CType = ffi::PKCS7_SIGNER_INFO;
+    fn drop = ffi::PKCS7_SIGNER_INFO_free;
+
+    pub struct Pkcs7SignerInfo;
+
+    pub struct Pkcs7SignerInfoRef;
 }
 
 bitflags! {
@@ -45,6 +54,10 @@ bitflags! {
         #[cfg(not(any(ossl101, ossl102, libressl)))]
         const NO_DUAL_CONTENT = ffi::PKCS7_NO_DUAL_CONTENT;
     }
+}
+
+impl Stackable for Pkcs7SignerInfo {
+    type StackType = ffi::stack_st_PKCS7_SIGNER_INFO;
 }
 
 impl Pkcs7 {
@@ -280,6 +293,26 @@ impl Pkcs7Ref {
 
         Ok(())
     }
+
+    pub fn get_certificate_from_signer(
+        &self,
+        signer: &Pkcs7SignerInfoRef,
+    ) -> Result<X509, ErrorStack> {
+        unsafe {
+            let certificate = cvt_p(ffi::PKCS7_cert_from_signer_info(
+                self.as_ptr(),
+                signer.as_ptr(),
+            ))?;
+            Ok(X509::from_ptr(certificate))
+        }
+    }
+
+    pub fn get_signers(&self) -> Result<&StackRef<Pkcs7SignerInfo>, ErrorStack> {
+        unsafe {
+            let signers = cvt_p(ffi::PKCS7_get_signer_info(self.as_ptr()))?;
+            Ok(StackRef::from_ptr(signers))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -395,6 +428,28 @@ mod tests {
 
         assert_eq!(output, message.as_bytes());
         assert!(content.is_none());
+    }
+
+    #[test]
+    fn get_signer_certificate_test() {
+        let cert = include_bytes!("../test/cert.pem");
+        let cert = X509::from_pem(cert).unwrap();
+        let certs = Stack::new().unwrap();
+        let message = "foo";
+        let flags = Pkcs7Flags::STREAM;
+        let pkey = include_bytes!("../test/key.pem");
+        let pkey = PKey::private_key_from_pem(pkey).unwrap();
+
+        let pkcs7 =
+            Pkcs7::sign(&cert, &pkey, &certs, message.as_bytes(), flags).expect("should succeed");
+
+        let signers = pkcs7.get_signers().unwrap();
+
+        assert_eq!(1, signers.len());
+
+        let signer_certificate = pkcs7.get_certificate_from_signer(&signers[0]).unwrap();
+
+        assert_eq!(signer_certificate.to_pem().unwrap(), cert.to_pem().unwrap());
     }
 
     #[test]

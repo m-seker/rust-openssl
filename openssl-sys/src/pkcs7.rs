@@ -9,6 +9,10 @@ pub enum PKCS7_DIGEST {}
 pub enum PKCS7_ENCRYPT {}
 pub enum PKCS7 {}
 
+pub enum PKCS7_SIGNER_INFO {}
+
+stack!(stack_st_PKCS7_SIGNER_INFO);
+
 pub const PKCS7_TEXT: c_int = 0x1;
 pub const PKCS7_NOCERTS: c_int = 0x2;
 pub const PKCS7_NOSIGS: c_int = 0x4;
@@ -75,4 +79,10 @@ extern "C" {
     ) -> c_int;
 
     pub fn SMIME_read_PKCS7(bio: *mut BIO, bcont: *mut *mut BIO) -> *mut PKCS7;
+
+    pub fn PKCS7_SIGNER_INFO_free(x: *mut PKCS7_SIGNER_INFO);
+
+    pub fn PKCS7_cert_from_signer_info(p7: *mut PKCS7, si: *mut PKCS7_SIGNER_INFO) -> *mut X509;
+
+    pub fn PKCS7_get_signer_info(p7: *mut PKCS7) -> *mut stack_st_PKCS7_SIGNER_INFO;
 }
